@@ -7,8 +7,9 @@
 #include "esp_timer.h" //Para antirrebote
 
 //ESP-32D WROOM XX5R69
-#define LEFT 36
-#define RIGHT 39 
+#define LEFT 36 //Por ser pin solo de entrada, no tienen resistencias pull-up o pull-down internas
+#define RIGHT 34 //pin solo entrada
+//En adelante, pines I/O
 #define ROW2 32 //fila 2 (no se usará la fila 1), enumerados de arriba hacia abajo
 #define ROW3 33 
 #define ROW4 25
@@ -31,8 +32,10 @@
 #define COL_R8 0
 #define COL_G8 2
 int shiplives = 3;
+int ship_col = 2;
+bool ship_visible = true;
 // (C cuenta índices desde 0) 
-bool G[9][9] = {0}; //Matriz 9x9 (C cuenta índices desde 0) Verde (enemigos, nave)
+bool G[9][9] = {0}; //Matriz 9x9 Verde (enemigos, nave)
 bool R[9][9] = {0}; //Matriz Rojo (disparos)
 
 volatile bool moveleft = false;
@@ -79,6 +82,7 @@ int column_G(int c){
             return COL_G8;
             break;
     }
+    return 0;
 }
 
 int column_R(int c){
@@ -105,6 +109,7 @@ int column_R(int c){
             return COL_R8;
             break;
     }
+    return 0;
 }
 
 int row(int r){
@@ -131,6 +136,7 @@ int row(int r){
             return ROW8;
             break;
     }
+    return 0;
 }
 
 void turnoff(){
@@ -166,11 +172,17 @@ void multiplexar(){
             if(R[j][i]){
                 gpio_set_level(column_R(i), 1);
             } else if(G[j][i]){
-                gpio_set_level(column_G(i), 1);
+                if(j==8){
+                    if(ship_visible){
+                        gpio_set_level(column_G(i), 1);
+                    }
+                } else{
+                    gpio_set_level(column_G(i), 1);
+                }
             }
         }
 
-        ets_delay_us(1000); //1ms 
+        esp_rom_delay_us(1000); //1ms 
     }
 }
 
@@ -181,6 +193,7 @@ void restart(){
             R[j][i] = 0;
         }
     }
+    ship_col = 2;
     G[8][2] = 1; //Posición inicial de la nave, fila 8, columna 2
     for(int j=2; j<=4; j++){ //Posición inicial de los enemigos
         G[j][3] = 1;
@@ -190,7 +203,6 @@ void restart(){
 }
 
 void shipmotion(){
-    static int ship_col = 2; //Posición inicial de la nave
     G[8][ship_col] = 0; //apagar posición actual
     if (moveleft){
         if (ship_col > 2){ //Que no se mueva a la izquierda si está en el extremo izquierdo
@@ -212,7 +224,7 @@ void shipattack(uint64_t attacknow, uint64_t *lastattack, uint64_t *last_step){ 
     
     for (int i=2; i<=8; i++){
         if (G[8][i]){ //Donde la nave esté
-            if(shoot == -1 && attacknow - *lastattack >= 1500000){ //Cada 1.5s, disparará
+            if(shoot == -1 && attacknow - *lastattack >= 500000){ //Cada 500ms, disparará
                 *lastattack = attacknow;
                 shoot = 7; //empieza desde esta fila a disparar
                 col = i; //en qué columna está la nave
@@ -239,7 +251,7 @@ void shipattack(uint64_t attacknow, uint64_t *lastattack, uint64_t *last_step){ 
 void enemiesmotion(uint64_t movenow, uint64_t *lastmove){
     static bool dir = 1; // 1 = derecha; 0 = izquierda
     static bool godown = false;
-    if(movenow - *lastmove <500000){ //Ya pasaron 500ms para mover los enemigos?
+    if(movenow - *lastmove <2000000){ //Ya pasaron 2s para mover los enemigos?
         return;
     }
     *lastmove = movenow;
@@ -280,7 +292,7 @@ void enemiesmotion(uint64_t movenow, uint64_t *lastmove){
             }
         }
     } else{
-        for (int i=3; i<=8; i++){ //Mover de derecha a izquierda
+        for (int i=2; i<=8; i++){ //Mover de derecha a izquierda
             for (int j=2; j<=7; j++){ 
                 if (G[j][i]){
                     G[j][i] = 0;
@@ -340,16 +352,12 @@ void enemiesattack(uint64_t shootnow, uint64_t *lastshot, uint64_t *lastmove, ui
         }
         R[shoot_e][col_e] = 1;
     }
-    if(count < 6 && shootnow - *lasthit >= 250000){ //Titila cada 250ms cuando le dieron a la nave
+    if(count < 8 && shootnow - *lasthit >= 250000){ //Titila cada 250ms cuando le dieron a la nave
         *lasthit = shootnow;
         count++;
-        s_led_state = !s_led_state;
-        for(int i=2; i<=8; i++){
-            if(G[8][i]){
-                G[8][i] = s_led_state;
-            }
-        }
-        if(count == 6){
+        ship_visible = !ship_visible;
+        if(count == 8){ //Titila 4 veces
+            ship_visible = true;
             shiplives--;
             if (shiplives == 0){
                 restart();
@@ -413,7 +421,7 @@ void app_main(void) {
     gpio_config_t in_cfg = {
         .pin_bit_mask = (1ULL << LEFT) | (1ULL << RIGHT),
         .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_up_en = GPIO_PULLUP_DISABLE, //Debe ser resistencia pull-up analógica externa
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_NEGEDGE //interrupción, Flanco de bajada
     };
