@@ -34,21 +34,21 @@ int shiplives = 3;
 
 volatile bool moveleft = false;
 volatile bool moveright = false;
-volatile int64_t last_time_rst = 0;
+volatile int64_t last_time = 0;
 
 static void IRAM_ATTR buttonleft_isr(void *arg){
     int64_t now = esp_timer_get_time();
-    if(now - last_time_rst >= 20000){ //Espere 20ms --> antirrebote
+    if(now - last_time >= 20000){ //Espere 20ms --> antirrebote
         moveleft = true;
-        last_time_rst = now;
+        last_time = now;
     }
 }
 
 static void IRAM_ATTR buttonright_isr(void *arg){
     int64_t now = esp_timer_get_time();
-    if(now - last_time_rst >= 20000){ //Espere 20ms --> antirrebote
+    if(now - last_time >= 20000){ //Espere 20ms --> antirrebote
         moveright = true;
-        last_time_rst = now;
+        last_time = now;
     }
 }
 
@@ -217,16 +217,18 @@ void shipattack(uint64_t attacknow, uint64_t *lastattack, uint64_t *last_step){ 
 }
 
 void enemiesmotion(uint64_t movenow, uint64_t *lastmove){
-    static int dir = 1; // 1 = derecha; -1 = izquierda
+    static bool dir = 1; // 1 = derecha; 0 = izquierda
     static bool godown = false;
     //Movimiento hacia la derecha:
-    if(movenow - *lastmove <500000){
+    if(movenow - *lastmove <500000){ //Ya pasaron 500ms para mover los enemigos?
         return;
     }
     *lastmove = movenow;
+    godown = false;
     for(int j=2; j<=7; j++){ //Detecta si se está en uno de los extremos
-        if((dir == 1 && gpio_get_level(row(j)) == 1 && gpio_get_level(column_G(8))) == 1 || (dir == -1 && gpio_get_level(row(j)) == 1 && gpio_get_level(column_G(2))) == 1){
+        if( (dir == 1 && gpio_get_level(row(j)) == 1 && gpio_get_level(column_G(8)) == 1) || (dir == 0 && gpio_get_level(row(j)) == 1 && gpio_get_level(column_G(2)) == 1)){
             godown = true;
+            break;
         }
     }
     //Salto hacia abajo:
@@ -239,13 +241,18 @@ void enemiesmotion(uint64_t movenow, uint64_t *lastmove){
                 }
             }
         }
-        dir = -dir; //cambiar dirección
-        godown = false;
+        for (int i=2; i<=8; i++){
+            if (gpio_get_level(row(7)) == 1 && gpio_get_level(column_G(i)) == 1){ //Los enemigos acorralaron la nave
+                restart();
+                return;
+            }
+        }
+        dir = !dir; //cambiar dirección
         return; //salir inmediamente de la función
     }
     //Movimiento lateral:
     if(dir == 1){
-        for (int i=7; i>=2; i--){ //Revisa hasta el 7 para que no vaya a moverlo hacia la derecha cuando esté en la esquina
+        for (int i=7; i>=2; i--){ //Mover de izquierda a derecha
             for (int j=2; j<=7; j++){ 
                 if (gpio_get_level(row(j)) == 1 && gpio_get_level(column_G(i)) == 1){
                     gpio_set_level(column_G(i), 0);
@@ -254,7 +261,7 @@ void enemiesmotion(uint64_t movenow, uint64_t *lastmove){
             }
         }
     } else{
-        for (int i=3; i<=8; i++){ //Revisa hasta el 4 por la misma razón de llegar hasta la esquina
+        for (int i=3; i<=8; i++){ //Mover de derecha a izquierda
             for (int j=2; j<=7; j++){ 
                 if (gpio_get_level(row(j)) == 1 && gpio_get_level(column_G(i)) == 1){
                     gpio_set_level(column_G(i), 0);
@@ -265,35 +272,83 @@ void enemiesmotion(uint64_t movenow, uint64_t *lastmove){
     }
 }
 
-void enemiesattack(){
-    for (int j=6; j>=2; j--){  //Detección de abajo hacia arriba para las filas; dispara hasta la sexta fila  
-        for (int i=2; i<=7; i++){ 
-            if (gpio_get_level(row(j)) == 1 && gpio_get_level(column_G(i)) == 1){ //Donde encuentre un enemigo
-                if (gpio_get_level(row(j-1)) == 0){ //y no haya uno de los suyos al frente
-                    for (int k=2; k<=7; k++){ //empieza a disparar
-                        gpio_set_level(row(k), 1);
-                        gpio_set_level(column_R(i), 1);
-                        vTaskDelay(pdMS_TO_TICKS(500));
-                        gpio_set_level(row(k), 0); 
-                        gpio_set_level(column_R(i), 0);
-                        if (gpio_get_level(row(8)) == 1 && gpio_get_level(column_G(i)) == 1){ //Hay una nave adelante?
-                            for (int s=1; s<=3; s++){ //Titila cuando le dio a la nave
-                                gpio_set_level(row(8), 0); 
-                                vTaskDelay(pdMS_TO_TICKS(250));
-                                gpio_set_level(row(8), 1);
-                            }
-                            shiplives--;
-                            if (shiplives == 0){
-                                restart();
-                                shiplives = 3;
-                            }
-                        }
+void enemiesattack(uint64_t shootnow, uint64_t *lastshot, uint64_t *lastmove, uint64_t *lasthit){
+    static bool e_led_state = 0; 
+    static bool s_led_state = 0; 
+    static int shoot_e = 9; //9 = no hay o se pasó de la matriz
+    static int col_e = 9;
+    static bool dir_det = 1;
+    static int count = 0;  
+    if (shoot_e == 9 && shootnow - *lastshot >= 2000000){ //cada 2s
+        for (int j=6; j>=2; j--){  //Detección de abajo hacia arriba para las filas; dispara hasta la sexta fila
+            if(dir_det){
+                for (int i=2; i<=8; i++){ 
+                    if (gpio_get_level(row(j)) == 1 && gpio_get_level(row(j+1)) == 0 && gpio_get_level(column_G(i)) == 1){
+                        dir_det = !dir_det; //Cambia de dirección de detección
+                        *lastshot = shootnow;
+                        shoot_e = j;
+                        col_e = i;
+                        break;
+                    }
+                }
+            } else {
+                for (int i=8; i>=2; i--){ 
+                    if (gpio_get_level(row(j)) == 1 && gpio_get_level(row(j+1)) == 0 && gpio_get_level(column_G(i)) == 1){
+                        dir_det = !dir_det;
+                        *lastshot = shootnow;
+                        shoot_e = j;
+                        col_e = i;
+                        break;
                     }
                 }
             }
-            vTaskDelay(pdMS_TO_TICKS(1500)); //Cada 1.5s disparará
+            if (shoot_e != 9){
+                break; //Sale también del loop de filas
+            }
         }
     }
+    if(shoot_e != 9 && shootnow - *lastmove >= 500000){ //500ms
+        *lastmove = shootnow;
+        gpio_set_level(row(shoot_e), 0);
+        shoot_e++;
+        if (shoot_e == 8){ //Fila de la nave
+            if (gpio_get_level(row(8)) == 1 &&
+                gpio_get_level(column_G(col_e)) == 1){
+
+                gpio_set_level(column_R(col_e), 0);
+                count = 0; 
+            }
+            shoot_e = 9;
+            return;
+        }
+        e_led_state = !e_led_state;
+        gpio_set_level(row(shoot_e), e_led_state);
+        gpio_set_level(column_R(col_e), e_led_state);
+    }
+    if(count < 6 && shootnow - *lasthit >= 250000){ //Titila cada 250ms cuando le dieron a la nave
+        *lasthit = shootnow;
+        count++;
+        s_led_state = !s_led_state;
+        gpio_set_level(row(8), s_led_state);
+        if(count == 6){
+            shiplives--;
+            if (shiplives == 0){
+                restart();
+                shiplives = 3;
+            }
+        }
+    }
+}
+
+bool win(){
+    for (int i=2; i<=8; i++){ 
+        for (int j=7; j>=2; j--){ //Detección de abajo hacia arriba para las filas
+            if (gpio_get_level(row(j)) == 1 && gpio_get_level(column_G(i)) == 1){
+                return false; //Aún hay enemigos
+            }
+        }
+    }
+    return true; //No se encontró enemigo --> se han eliminado
 }
 
 void app_main(void) {
@@ -304,9 +359,7 @@ void app_main(void) {
         .alarm_en = TIMER_ALARM_DIS,
         .auto_reload = false
     };
-    timer_init(TIMER_GROUP_0, TIMER_0, &timer_conf); //movimiento del disparo de nave
-    timer_init(TIMER_GROUP_0, TIMER_1, &timer_conf); //movimiento del disparo enemigo
-    timer_init(TIMER_GROUP_1, TIMER_0, &timer_conf); //movimiento del enemigo
+    timer_init(TIMER_GROUP_0, TIMER_0, &timer_conf);
     
     gpio_config_t out_cfg = {
         .pin_bit_mask = (1ULL << ROW2) |
@@ -350,26 +403,41 @@ void app_main(void) {
     gpio_isr_handler_add(LEFT, buttonleft_isr, NULL);
     gpio_isr_handler_add(RIGHT, buttonright_isr, NULL);
     
-    uint64_t last_s = 0;
     uint64_t now = 0; 
-    uint64_t last = 0;
-    uint64_t now_e = 0; 
-    uint64_t last_e = 0;
-
+    uint64_t last = 0; //movimiento nave
+    uint64_t last_s = 0; //disparo nave
+    uint64_t last_e = 0; //movimiento enemigos
+    uint64_t last_e_s = 0; //inicio de disparo enemigo
+    uint64_t last_es = 0; //disparo enemigo
+    uint64_t last_hs = 0; //hit nave
+    bool won = false;
+    bool game = false;
     restart();
 
     timer_set_counter_value(TIMER_GROUP_0, TIMER_0, 0); //Se pone en 0
     timer_start(TIMER_GROUP_0, TIMER_0); //Comienza a contar
-    timer_set_counter_value(TIMER_GROUP_0, TIMER_1, 0); 
-    timer_start(TIMER_GROUP_0, TIMER_1); 
 
     while(1){
         timer_get_counter_value(TIMER_GROUP_0, TIMER_0, &now);
-        timer_get_counter_value(TIMER_GROUP_0, TIMER_1, &now_e);
-        shipmotion();
-        shipattack(now, &last, &last_s);
-        enemiesmotion(now_e, &last_e);
-        enemiesattack();
+        if(!game){
+            shipmotion();
+            shipattack(now, &last, &last_s);
+            enemiesmotion(now, &last_e);
+            enemiesattack(now, &last_e_s, &last_es, &last_hs);
+        }
+        won = win();
+        if (won && !game){
+            restart();
+            last = 0;
+            last_s = 0;
+            last_e = 0;
+            last_e_s = 0;
+            last_es = 0;
+            last_hs = 0;
+            game = true;
+        }
+        if(!won){
+            game = false;
+        }
     }
-
 }
