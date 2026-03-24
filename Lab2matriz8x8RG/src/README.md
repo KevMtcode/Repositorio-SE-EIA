@@ -1,0 +1,4 @@
+## **Space Invaders** mediante Matriz de LEDs
+El código presentado en main.c es una representación del videojuego Space Invaders de 1978 en una matriz 8x8 de LEDs, ánodo común, de color rojo (siendo los disparos) y verde (siendo los enemigos que van bajando y la nave que el usuario manipula). Debido a que su implementación se lleva a cabo en una ESP32, la cantidad total de pines disponibles de GPIO solo permite usar un área de 7x7 de esta matriz:
+Por un lado, de acuerdo con los cálculos, los pines de las filas de esta matriz deben tener resistencias de 100ohm, mientras que las columnas deben ir al colector de un transistor BJT npn, con resistencia en la base de 2.2kohm y emisor a tierra de la ESP32. 
+Por otro lado, en cuanto a los botones para mover la nave (o el LED verde de la fila 8), ambos deben tener una resistencia pull-up de 10kohm hacia 3.3V de la ESP32.
