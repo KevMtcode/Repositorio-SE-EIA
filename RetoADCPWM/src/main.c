@@ -187,7 +187,7 @@ void app_main(void) {
         .channel = LEDC_CHANNEL_0, 
         .timer_sel = LEDC_TIMER_0,
         .intr_type = LEDC_INTR_DISABLE,
-        .gpio_num = 25, //pin 25
+        .gpio_num = LEFT_M, //pin 25
         .duty = 0, //Duty inicial
         .hpoint = 0, //Punto de inicio del pulso: 0 (normal)
     };
@@ -198,7 +198,7 @@ void app_main(void) {
         .channel = LEDC_CHANNEL_1, 
         .timer_sel = LEDC_TIMER_0,
         .intr_type = LEDC_INTR_DISABLE,
-        .gpio_num = 26, //pin 26
+        .gpio_num = RIGHT_M, //pin 26
         .duty = 0, //Duty inicial
         .hpoint = 0, //Punto de inicio del pulso: 0 (normal)
     };
@@ -249,13 +249,17 @@ void app_main(void) {
     gpio_set_level(unidad, 0);
     gpio_set_level(decena, 0);
     gpio_set_level(centena, 0);
+    gpio_set_level(LEFT_M, 0); //PWM1
+    gpio_set_level(RIGHT_M, 0); //PWM2
 
     uint64_t count = 0;
     uint64_t last_count = 0; // timer para contador
     uint64_t last_mux = 0; // timer para multiplexación
     uint64_t timer_value = 0; // timer para ADC
-    int adc_raw; 
-    float pot_v; //Voltaje del potenciómetro
+    int adc_raw, duty1, duty2;
+    int pot_p; //porcentaje del potenciómetro
+    static bool capture_value = false;
+    static int duty_pot; 
 
     int unidad_val = 0;
     int decena_val = 0;
@@ -263,28 +267,69 @@ void app_main(void) {
 
     int display = 4; //unidad = 4, decena = 3, centena = 2
 
-    //ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty1);
-    //ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
-
-    //ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty2);
-    //ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
-
     timer_set_counter_value(TIMER_GROUP_0, TIMER_0, 0);
     timer_start(TIMER_GROUP_0, TIMER_0);
     timer_set_counter_value(TIMER_GROUP_0, TIMER_1, 0);
     timer_start(TIMER_GROUP_0, TIMER_1);
     while(1){
         timer_get_counter_value(TIMER_GROUP_0, TIMER_0, &count);
-        timer_get_counter_value(TIMER_GROUP_0, TIMER_1, &timer_value);
+        timer_get_counter_value(TIMER_GROUP_0, TIMER_1, &timer_value); //para muestreo del ADC
         if(timer_value >= SAMPLE_PERIOD_US){ //Lectura del valor del potenciómetro
             adc_oneshot_read(adc1_handle, ADC_CHANNEL_6, &adc_raw); //Lea el valor del canal 6 (pin 34)
             //Valor digital recibido: número entero de 0 a 4095, pues es de 12 bits, entonces niveles = 2^12
-            pot_v = (adc_raw / 4095.0) * 3.3; //Vref = 3.3V, por la atenuación de 12dB
+            pot_p = (adc_raw * 100) / 4095; //en porcentaje
             timer_set_counter_value(TIMER_GROUP_0, TIMER_1, 0);
         }
+        if(moveleft){
+            if(!capture_value){
+                duty_pot = adc_raw; //Copia del voltaje del potenciómetro
+                capture_value = true; //para solo capturar el valor actual una vez
+            }
+            if(count - last_count >= 500000){ //cada 0.5s decrementa hasta llegar a 0
+                if(duty_pot > 0){ //Cambio suave de dirección
+                    duty_pot -= 409; //Quitarle al rango un 10%
+                    if(duty_pot < 0) duty_pot = 0;
+                    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty_pot);
+                    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
+                    last_count = count;
+                } else { //Ya está en 0
+                    duty1 = adc_raw;
+                    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty1);
+                    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+                    gpio_set_level(RED, 1);
+                    gpio_set_level(GREEN, 0);
+                    moveleft = false;
+                    capture_value = false;
+                }
+            }
+        } else if(moveright){
+            if(!capture_value){
+                duty_pot = adc_raw; //Copia del voltaje del potenciómetro
+                capture_value = true; //para solo capturar el valor actual una vez
+            }
+            if(count - last_count >= 500000){ //cada 0.5s decrementa hasta llegar a 0
+                if(duty_pot > 0){ //Cambio suave de dirección
+                    duty_pot -= 409; //Quitarle al rango un 10%
+                    if(duty_pot < 0) duty_pot = 0;
+                    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty_pot);
+                    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+                    last_count = count;
+                } else { //Ya está en 0
+                    duty2 = adc_raw;
+                    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty2);
+                    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
+                    gpio_set_level(RED, 0);
+                    gpio_set_level(GREEN, 1);
+                    moveright = false;
+                    capture_value = false;
+                }
+            }
+        }
 
-
-
+        centena_val = pot_p / 100;
+        decena_val = (pot_p / 10) % 10;
+        unidad_val = pot_p % 10;
+        
         // Multiplexación de los 7seg. cada 2ms:
         if(count - last_mux >= 2000){
             last_mux = count;
