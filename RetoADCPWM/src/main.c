@@ -24,9 +24,9 @@
 #define E_7seg 16
 #define F_7seg 4
 #define G_7seg 0
-#define unidad 2
-#define decena 5
-#define centena 13
+#define unidad 13
+#define decena 15
+#define centena 2
 
 adc_oneshot_unit_handle_t adc1_handle;
 volatile bool moveleft = false;
@@ -257,7 +257,7 @@ void app_main(void) {
     uint64_t last_mux = 0; // timer para multiplexación
     uint64_t timer_value = 0; // timer para ADC
     int adc_raw, duty1, duty2;
-    int pot_p; //porcentaje del potenciómetro
+    int pot_p = 0; //porcentaje del potenciómetro
     static bool capture_value = false;
     static int duty_pot; 
 
@@ -330,7 +330,7 @@ void app_main(void) {
         decena_val = (pot_p / 10) % 10;
         unidad_val = pot_p % 10;
         
-        // Multiplexación de los 7seg. cada 2ms:
+        // Multiplexación de los 7seg. cada 20ms:
         if(count - last_mux >= 2000){
             last_mux = count;
             gpio_set_level(unidad, 0);
