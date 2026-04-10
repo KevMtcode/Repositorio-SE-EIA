@@ -10,8 +10,8 @@
 #include "esp_adc/adc_oneshot.h" //ADC
 #include "driver/ledc.h" //PWM
 
-#define LEFT 36
-#define RIGHT 39
+#define LEFT 39
+#define RIGHT 36
 #define SAMPLE_PERIOD_US 1000 // 1000us o 1ms de periodo de muestreo del ADC, para el potenciómetro
 #define LEFT_M 25 //PWM para 4N25 del circuito de potencia motor
 #define RIGHT_M 26 //PWM para la otra dirección
@@ -173,11 +173,11 @@ void app_main(void) {
     adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_6, //El canal a usar será el 6, entonces conectar pin 34
     &chan_config); 
 
-    ledc_timer_config_t ledc_timer = {
+    ledc_timer_config_t ledc_timer = { //por acá está la frecuencia del PWM
         .speed_mode = LEDC_LOW_SPEED_MODE,
         .timer_num = LEDC_TIMER_0,
         .duty_resolution = LEDC_TIMER_12_BIT, //Resolución --> 0 a 4095, pues es 12 bits
-        .freq_hz = 5000,
+        .freq_hz = 500,
         .clk_cfg = LEDC_AUTO_CLK,
     };
     ledc_timer_config(&ledc_timer);
@@ -249,8 +249,6 @@ void app_main(void) {
     gpio_set_level(unidad, 0);
     gpio_set_level(decena, 0);
     gpio_set_level(centena, 0);
-    gpio_set_level(LEFT_M, 0); //PWM1
-    gpio_set_level(RIGHT_M, 0); //PWM2
 
     uint64_t count = 0;
     uint64_t last_count = 0; // timer para contador
@@ -260,6 +258,7 @@ void app_main(void) {
     int pot_p = 0; //porcentaje del potenciómetro
     static bool capture_value = false;
     static int duty_pot; 
+    bool direc_l = true; //true --> izquierda
 
     int unidad_val = 0;
     int decena_val = 0;
@@ -287,7 +286,7 @@ void app_main(void) {
             }
             if(count - last_count >= 500000){ //cada 0.5s decrementa hasta llegar a 0
                 if(duty_pot > 0){ //Cambio suave de dirección
-                    duty_pot -= 409; //Quitarle al rango un 10%
+                    duty_pot -= 200; //Quitarle al rango un 5%
                     if(duty_pot < 0) duty_pot = 0;
                     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty_pot);
                     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
@@ -300,6 +299,7 @@ void app_main(void) {
                     gpio_set_level(GREEN, 0);
                     moveleft = false;
                     capture_value = false;
+                    direc_l = true;
                 }
             }
         } else if(moveright){
@@ -307,9 +307,9 @@ void app_main(void) {
                 duty_pot = adc_raw; //Copia del voltaje del potenciómetro
                 capture_value = true; //para solo capturar el valor actual una vez
             }
-            if(count - last_count >= 500000){ //cada 0.5s decrementa hasta llegar a 0
+            if(count - last_count >= 250000){ //cada 0.25s decrementa hasta llegar a 0
                 if(duty_pot > 0){ //Cambio suave de dirección
-                    duty_pot -= 409; //Quitarle al rango un 10%
+                    duty_pot -= 200; //Quitarle al rango un 5%
                     if(duty_pot < 0) duty_pot = 0;
                     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty_pot);
                     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
@@ -320,9 +320,27 @@ void app_main(void) {
                     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
                     gpio_set_level(RED, 0);
                     gpio_set_level(GREEN, 1);
+                    direc_l = false;
                     moveright = false;
                     capture_value = false;
                 }
+            }
+        } else {
+            // actualizar velocidad cuando el motor gira, después de haber presionado un pulsador
+            if(direc_l){
+                // izquierda
+                ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, adc_raw);
+                ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+
+                ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 0);
+                ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
+            } else {
+                // derecha
+                ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, adc_raw);
+                ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
+
+                ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0);
+                ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
             }
         }
 
