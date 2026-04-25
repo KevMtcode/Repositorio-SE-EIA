@@ -1,5 +1,6 @@
 #include <math.h>
 #include <stdint.h>
+#include <string.h> //para los caracteres
 #include <stdio.h>
 #include <stdlib.h> //Para atoi() --> ASCII to integer
 #include <inttypes.h>
@@ -20,32 +21,39 @@
 #define OUT3 5 //IN3 del puente H doble L298N
 #define OUT4 17 //IN4 del puente H doble L298N
 
+volatile bool cw_ccw = 0; // horario o antihorario
 adc_oneshot_unit_handle_t adc1_handle;
-uint8_t turn[8][4] = {{1, 0, 0, 0},
-                   {1, 1, 0, 0}, // secuencia half-step (2 filas = 1 paso)
-                   {0, 1, 0, 0},
-                   {0, 1, 1, 0}, 
-                   {0, 0, 1, 0}, 
-                   {0, 0, 1, 1},
-                   {0, 0, 0, 1},
-                   {1, 0, 0, 1}};
 
-void stepper_motor(bool direction){ // 0: horario, 1: antihorario 
-    static int i = 0; //Con variable static, se converva en memoria y se mandará una fila por cada ciclo
-    if(direction == 0){ //horario  
-        i = (i + 1) % 8; //"contador circular" --> 0 a 7, luego vuelve y cuenta de 0 a 7...
+uint8_t turn[8][4] = {{1, 0, 1, 0},
+                   {1, 0, 0, 0}, // secuencia half-step (2 filas = 1 paso)
+                   {1, 0, 0, 1},
+                   {0, 0, 0, 1}, 
+                   {0, 1, 0, 1}, 
+                   {0, 1, 0, 0},
+                   {0, 1, 1, 0},
+                   {0, 0, 1, 0}};
+
+void stepper_motor(bool direction){
+    static int i = 0;
+    if(direction == 0){
+        i = (i + 1) % 8;
     } else {
-        i = (i - 1 + 8) % 8; //+8 para que no sea sacar el modulo negativo
-    }    
+        i = (i - 1 + 8) % 8;
+    }
+
     gpio_set_level(OUT1, turn[i][0]);
     gpio_set_level(OUT2, turn[i][1]);
     gpio_set_level(OUT3, turn[i][2]);
     gpio_set_level(OUT4, turn[i][3]);
 }
 
+static bool IRAM_ATTR timer_isr(void *arg){ //en interrupciones de timers
+    stepper_motor(cw_ccw);
+    return false; //deben retornar función booleana
+}
 void app_main(void) {
     uart_config_t uart_config = {
-        .baud_rate = 9600,  //poner en platformio.ini --> monitor_speed = 9600, es decir, velocidad del computador debe ser la misma del ESP32
+        .baud_rate = 115200,  //poner en platformio.ini --> monitor_speed = 9600, es decir, velocidad del computador debe ser la misma del ESP32
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
@@ -64,6 +72,32 @@ void app_main(void) {
     };
     timer_init(TIMER_GROUP_0, TIMER_0, &config); //Para mostrar las variables al usuario en consola
     timer_init(TIMER_GROUP_0, TIMER_1, &config); //Para muestreo del ADC 
+
+    timer_config_t config_i = { //Timer de interrupción para motor stepper
+        .divider = 80,
+        .counter_dir = TIMER_COUNT_UP,
+        .counter_en = TIMER_PAUSE,
+        .alarm_en = TIMER_ALARM_EN, //alarma de timer de interrupción
+        .auto_reload = true,  
+    };
+    timer_init(TIMER_GROUP_1, TIMER_0, &config_i);
+    timer_set_counter_value(TIMER_GROUP_1, TIMER_0, 0);
+    uint64_t alarm = 1000000;
+    timer_set_alarm_value(
+        TIMER_GROUP_1,
+        TIMER_0,
+        alarm 
+    );
+    timer_isr_callback_add(
+        TIMER_GROUP_1,
+        TIMER_0,
+        timer_isr,
+        NULL,
+        0
+    );
+    timer_enable_intr(TIMER_GROUP_1, TIMER_0);
+    timer_start(TIMER_GROUP_1, TIMER_0);
+
     adc_oneshot_unit_init_cfg_t init_config ={ //Se usará solo ADC1
         .unit_id = ADC_UNIT_1,
     };
@@ -85,7 +119,7 @@ void app_main(void) {
         .speed_mode = LEDC_LOW_SPEED_MODE,
         .timer_num = LEDC_TIMER_0,
         .duty_resolution = LEDC_TIMER_12_BIT, //Resolución --> 0 a 4095, pues es 12 bits
-        .freq_hz = 1000,
+        .freq_hz = 5000,
         .clk_cfg = LEDC_AUTO_CLK,
     };
     ledc_timer_config(&ledc_timer);
@@ -121,16 +155,15 @@ void app_main(void) {
     gpio_set_level(OUT4, 0);
 
     uint64_t count = 0;
-    uint64_t last_step_time = 0;
     uint64_t last_print_time = 0; // timer para mostrar las variables en consola
     uint64_t timer_value = 0; // timer para ADCs
     int adc_raw_LDR, adc_raw_LM35, dutyC = 0;
     int dutyC_p = 0; //Duty Cycle en porcentaje 
     int ni = 0; //ilumanción según LDR
-    int st = 0, cw_ccw = 0; //steps, horario o antihorario
+    int st = 100; //steps
     int T = 0;
     int temp = 0;
-    int len = 0;
+    static int last_st = -1;
 
     //Es más eficiente trabajar con punteros de char, en vez de cadenas de texto de string:
     char *mensaje_inicio = "\nControl de temperatura e iluminación\n"; //* es para crearlo como pointer,
@@ -169,18 +202,31 @@ void app_main(void) {
         ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, dutyC);
         ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
         T = (adc_raw_LM35*330) / 4095; //330 es 3.3V * 100; T en voltaje * 100°C / 1°C, pues LM35 entrega 10mV/1°C
-        char buffer[10];
-        len = uart_read_bytes(UART_PORT, buffer, sizeof(buffer)-1, 10 / portTICK_PERIOD_MS);
-        if(len > 0){
-            buffer[len] = '\0';
-            temp = atoi(buffer); //ASCII a número entero
-            if(temp > 0 && temp < 100){ // rango de temperatura
-                Tc = temp;
+        //Ingresar dos caracteres:
+        static char rx_buffer[16];
+        static int idx = 0; //índice o posición donde se guarda el caracter
+        uint8_t c; //caracter
+        int n = uart_read_bytes(UART_PORT, &c, 1, 0); // con 0, no bloque por tiempo de espera
+        if(n > 0){
+            if(c == '\n' || c == '\r'){ //Si el caracter es enter (\n o \r). el usuario ya terminó de escribir
+                rx_buffer[idx] = '\0'; //agregar caracter nulo para que atoi() funcione bien
+                temp = atoi(rx_buffer); //Convierte string a entero 
+                if(temp > 0 && temp < 100){
+                    Tc = temp;
+                }
+                idx = 0; //reincia índice para recibir nuevo número
+            } else {
+                if(idx < sizeof(rx_buffer)-1){ //si no es enter, se recibe un caracter y sin desbordar el buffer
+                    rx_buffer[idx++] = c; //guarda el caracter, luego se incrementa el índice para otro caracter
+                }
             }
         }
         if(count - last_print_time >= 3000000){ //3s en pantalla y actualiza valores
-            char *msg = "SET_TEMP:\n";
+            char *msg = "SET_TEMP: ";
             uart_write_bytes(UART_PORT, msg, strlen(msg));
+            char num1[16]; //[16] es que quiero guardar un espacio de 16 bytes para ese caracter
+            sprintf(num1, "%d °C\n", Tc);
+            uart_write_bytes(UART_PORT, num1, strlen(num1));
             
             char *msg1 = "Temperatura medida: ";
             uart_write_bytes(UART_PORT, msg1, strlen(msg1));
@@ -202,27 +248,38 @@ void app_main(void) {
             gpio_set_level(OUT2, 0);
             gpio_set_level(OUT3, 0);
             gpio_set_level(OUT4, 0);
-            st = 0;
         } else if (T < Tc-1){ //horario, 100 steps/s
             gpio_set_level(LightB, 1);
-            st = 100*2; //2 filas son 1 paso
+            st = 100; //2 filas son 1 paso
             cw_ccw = 0;
         } else if (T > Tc+1 && T < Tc+3){ //antihorario, 100 steps/s
             gpio_set_level(LightB, 0);
-            st = 100*2;
+            st = 100;
             cw_ccw = 1;
         } else if (T >= Tc+3 && T <= Tc+5){ //antihorario, 300 steps/s
             gpio_set_level(LightB, 0);
-            st = 300*2;
+            st = 300;
             cw_ccw = 1;
         } else if (T > Tc+5){ //antihorario, 600 steps/s
             gpio_set_level(LightB, 0);
-            st = 600*2;
+            st = 600;
             cw_ccw = 1;
         }
-        if(st > 0 && count - last_step_time >= (1000000 / st)){
-            stepper_motor(cw_ccw);
-            last_step_time = count;
+
+        if(st != last_st){
+            timer_disable_intr(TIMER_GROUP_1, TIMER_0);
+            if(st > 0){
+                uint64_t alarm = 1000000 / (st*8); //100 steps * 8líneas de la tabla de verdad turn
+                timer_pause(TIMER_GROUP_1, TIMER_0);
+                timer_set_counter_value(TIMER_GROUP_1, TIMER_0, 0);
+                timer_set_alarm_value(TIMER_GROUP_1, TIMER_0, alarm);
+                timer_start(TIMER_GROUP_1, TIMER_0);
+            } else {
+                timer_pause(TIMER_GROUP_1, TIMER_0);
+            }
+            timer_enable_intr(TIMER_GROUP_1, TIMER_0);
+            last_st = st;
         }
+        vTaskDelay(pdMS_TO_TICKS(10)); //para no saturar la CPU
     }
 }
