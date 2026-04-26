@@ -181,7 +181,6 @@ void app_main(void) {
             adc_oneshot_read(adc1_handle, ADC_CHANNEL_6, &adc_raw_LDR);
             adc_oneshot_read(adc1_handle, ADC_CHANNEL_7, &adc_raw_LM35);
             //Valor digital recibido: número entero de 0 a 4095, pues es de 12 bits, entonces niveles = 2^12
-            
             ni = (adc_raw_LDR * 100) / 4095; //en porcentaje
             timer_set_counter_value(TIMER_GROUP_0, TIMER_1, 0);
         }
@@ -230,7 +229,7 @@ void app_main(void) {
             
             char *msg1 = "Temperatura medida: ";
             uart_write_bytes(UART_PORT, msg1, strlen(msg1));
-            char num[16]; //[16] es que quiero guardar un espacio de 16 bytes para ese caracter
+            char num[16];
             sprintf(num, "%d °C\n", T);
             uart_write_bytes(UART_PORT, num, strlen(num));
 
@@ -280,6 +279,6 @@ void app_main(void) {
             timer_enable_intr(TIMER_GROUP_1, TIMER_0);
             last_st = st;
         }
-        vTaskDelay(pdMS_TO_TICKS(10)); //para no saturar la CPU
+        vTaskDelay(pdMS_TO_TICKS(100)); //para no saturar la CPU
     }
 }
