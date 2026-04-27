@@ -220,7 +220,7 @@ void app_main(void) {
                 }
             }
         }
-        if(count - last_print_time >= 3000000){ //3s en pantalla y actualiza valores
+        if(count - last_print_time >= 2000000){ //2s en pantalla y actualiza valores
             char *msg = "SET_TEMP: ";
             uart_write_bytes(UART_PORT, msg, strlen(msg));
             char num1[16]; //[16] es que quiero guardar un espacio de 16 bytes para ese caracter
@@ -268,7 +268,7 @@ void app_main(void) {
         if(st != last_st){
             timer_disable_intr(TIMER_GROUP_1, TIMER_0);
             if(st > 0){
-                uint64_t alarm = 1000000 / (st*8); //100 steps * 8líneas de la tabla de verdad turn
+                uint64_t alarm = 1000000 / (st*2); //100 steps * 2líneas de la tabla de verdad turn
                 timer_pause(TIMER_GROUP_1, TIMER_0);
                 timer_set_counter_value(TIMER_GROUP_1, TIMER_0, 0);
                 timer_set_alarm_value(TIMER_GROUP_1, TIMER_0, alarm);
