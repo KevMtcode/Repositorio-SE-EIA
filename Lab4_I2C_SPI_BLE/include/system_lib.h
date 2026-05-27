@@ -9,8 +9,7 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "driver/timer.h"
-//Comunicaciones:
-#include "driver/uart.h" 
+//  Comunicaciones:
 #include "driver/i2c.h"
 #include "driver/spi_master.h" 
 //BLE:
