@@ -15,4 +15,3 @@
 #define RTC_SCL (GPIO_NUM_32)
 #define RTC_SDA (GPIO_NUM_33)
 
-#define DEVICE_NAME "PanelHMI"
