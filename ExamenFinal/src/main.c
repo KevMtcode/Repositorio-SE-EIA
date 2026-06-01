@@ -19,6 +19,18 @@
 spi_device_handle_t mcp4132;
 adc_oneshot_unit_handle_t adc1_handle;
 
+void mcp4132_write_register(uint8_t reg, uint8_t dato){
+    uint8_t buf[2];
+    buf[0] = reg; //dirección del registro
+    buf[1] = dato; //dato a enviar
+
+    spi_transaction_t t = {
+        .length = 16,
+        .tx_buffer = buf,
+    };
+    spi_device_transmit(mcp4132, &t);
+}
+
 void spi_bus_init(void){
     spi_bus_config_t bus = {
         .mosi_io_num = PIN_MOSI,
@@ -36,9 +48,7 @@ void spi_bus_init(void){
     };
     spi_bus_add_device(SPI2_HOST, &dev, &mcp4132);
 
-
-
-
+    
 }
 
 void app_main(void) {
