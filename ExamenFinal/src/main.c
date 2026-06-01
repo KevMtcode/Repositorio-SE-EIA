@@ -7,7 +7,7 @@
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "driver/uart.h"
-#include "driver/timer.h"
+#include "driver/timer.h" 
 #include "esp_adc/adc_oneshot.h" //ADC
 
 #define UART_PORT UART_NUM_0
@@ -19,7 +19,7 @@
 spi_device_handle_t mcp4132;
 adc_oneshot_unit_handle_t adc1_handle;
 
-void mcp4132_write_register(uint8_t reg, uint8_t dato){
+void mcp4132_write_register(uint8_t reg, uint8_t dato){ //Escribir Address y datos
     uint8_t buf[2];
     buf[0] = reg; //dirección del registro
     buf[1] = dato; //dato a enviar
