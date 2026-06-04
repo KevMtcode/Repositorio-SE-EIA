@@ -5,7 +5,7 @@
 #define BLUE (GPIO_NUM_5)
 
 #define PIN_SS (GPIO_NUM_25)
-#define PIN_SClK (GPIO_NUM_26)
+#define PIN_SCLK (GPIO_NUM_26)
 #define PIN_MOSI (GPIO_NUM_27)
 #define PIN_MISO (GPIO_NUM_14)
 

@@ -17,6 +17,7 @@
 #include "esp_err.h"
 #include "esp_bt.h"
 #include "nvs_flash.h"
+#include "esp_nimble_hci.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
