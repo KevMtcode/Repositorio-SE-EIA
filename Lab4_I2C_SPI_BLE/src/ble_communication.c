@@ -6,7 +6,7 @@ static uint8_t own_addr_type;
 static uint16_t conn_handle = BLE_HS_CONN_HANDLE_NONE; //Identifica al cliente conectado
 static uint16_t nus_tx_val_handle; //Canal por donde ESP32 envía datos al celular 
 static bool notify_enabled = false; //Indica si el cliente está escuchando
-
+char lcd_message[17] = "Sin mensajes";
 /*
  * UUIDs oficiales del Nordic UART Service:
  * Service: 6e400001-b5a3-f393-e0a9-e50e24dcca9e
@@ -42,10 +42,10 @@ void nus_send_response(const char *msg) //Envía texto al celular
         return;
     }
 
-    int rc = ble_gatts_notify_custom(conn_handle, nus_tx_val_handle, om); //Manda la notificación
-    if (rc != 0) {
+    //int rc = ble_gatts_notify_custom(conn_handle, nus_tx_val_handle, om); //Manda la notificación
+    /*if (rc != 0) {
         ESP_LOGE(TAG, "Error enviando notificacion: %d", rc);
-    }
+    }*/
 }
 
 static int nus_rx_access_cb(uint16_t conn_handle_param, //Enviar datos del celular a la ESP32
@@ -64,10 +64,12 @@ static int nus_rx_access_cb(uint16_t conn_handle_param, //Enviar datos del celul
 
     data[len] = '\0'; //Poner un cero al final, teniendo 16 caracteres por llenar
 
-    ESP_LOGI(TAG, "Dato recibido por BLE: %s", data);
+    //ESP_LOGI(TAG, "Dato recibido por BLE: %s", data);
 
     if (len > 0 && len <= 16) {
-        nus_send_response("Mensaje recibido y mostrándose");
+        memcpy(lcd_message, data, len);
+        lcd_message[len] = '\0';
+        nus_send_response("OK");
     } else {
         nus_send_response("Error: Ingrese de 1 a 16 caracteres");
     }
@@ -117,15 +119,15 @@ static int ble_gap_event_cb(struct ble_gap_event *event, void *arg) //Manejo de 
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status == 0) {
             conn_handle = event->connect.conn_handle;
-            ESP_LOGI(TAG, "Cliente conectado");
+            //ESP_LOGI(TAG, "Cliente conectado");
         } else {
-            ESP_LOGW(TAG, "Conexion fallida, reanudando advertising");
+            //ESP_LOGW(TAG, "Conexion fallida, reanudando advertising");
             ble_app_advertise();
         }
         return 0;
 
     case BLE_GAP_EVENT_DISCONNECT:
-        ESP_LOGI(TAG, "Cliente desconectado");
+        //ESP_LOGI(TAG, "Cliente desconectado");
         conn_handle = BLE_HS_CONN_HANDLE_NONE;
         notify_enabled = false;
         ble_app_advertise();
@@ -134,7 +136,7 @@ static int ble_gap_event_cb(struct ble_gap_event *event, void *arg) //Manejo de 
     case BLE_GAP_EVENT_SUBSCRIBE:
         if (event->subscribe.attr_handle == nus_tx_val_handle) {
             notify_enabled = event->subscribe.cur_notify;
-            ESP_LOGI(TAG, "TX Notify: %s", notify_enabled ? "ON" : "OFF");
+            //ESP_LOGI(TAG, "TX Notify: %s", notify_enabled ? "ON" : "OFF");
         }
         return 0;
 
@@ -167,7 +169,7 @@ static void ble_app_advertise(void) //Advertising
     rc = ble_gap_adv_set_fields(&fields);
 
     if (rc != 0) {
-        ESP_LOGE(TAG, "Error configurando advertising: %d", rc);
+        //ESP_LOGE(TAG, "Error configurando advertising: %d", rc);
         return;
     }
 
@@ -183,7 +185,7 @@ static void ble_app_advertise(void) //Advertising
     rc = ble_gap_adv_rsp_set_fields(&rsp_fields);
 
     if (rc != 0) {
-        ESP_LOGE(TAG, "Error configurando scan response: %d", rc);
+        //ESP_LOGE(TAG, "Error configurando scan response: %d", rc);
         return;
     }
 
@@ -202,9 +204,9 @@ static void ble_app_advertise(void) //Advertising
     );
 
     if (rc != 0) {
-        ESP_LOGE(TAG, "Error iniciando advertising: %d", rc);
+        //ESP_LOGE(TAG, "Error iniciando advertising: %d", rc);
     } else {
-        ESP_LOGI(TAG, "Advertising iniciado como %s", DEVICE_NAME);
+        //ESP_LOGI(TAG, "Advertising iniciado como %s", DEVICE_NAME);
     }
 }
 
@@ -213,7 +215,7 @@ static void ble_app_on_sync(void)
     int rc = ble_hs_id_infer_auto(0, &own_addr_type);
 
     if (rc != 0) {
-        ESP_LOGE(TAG, "Error obteniendo direccion BLE: %d", rc);
+        //ESP_LOGE(TAG, "Error obteniendo direccion BLE: %d", rc);
         return;
     }
 
@@ -222,7 +224,7 @@ static void ble_app_on_sync(void)
 
 static void ble_app_on_reset(int reason)
 {
-    ESP_LOGE(TAG, "Reset BLE, reason=%d", reason);
+    //ESP_LOGE(TAG, "Reset BLE, reason=%d", reason);
 }
 
 static void ble_host_task(void *param)
@@ -232,27 +234,30 @@ static void ble_host_task(void *param)
 }
 void ble_init(void){
     esp_err_t ret = nvs_flash_init();
-
+    printf("BLE 1\n");
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
         ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ESP_ERROR_CHECK(nvs_flash_init());
+        nvs_flash_erase();
+        nvs_flash_init();
+        printf("BLE 2\n");
     }
-
-    ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
-
+    printf("BLE 3\n");
+    esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+    printf("BLE 4\n");
     nimble_port_init();
-
+    printf("BLE 5\n");
     ble_svc_gap_init();
     ble_svc_gatt_init();
-
+    printf("BLE 6\n");
     ble_svc_gap_device_name_set(DEVICE_NAME);
 
     ble_hs_cfg.sync_cb = ble_app_on_sync;
     ble_hs_cfg.reset_cb = ble_app_on_reset;
-
-    ESP_ERROR_CHECK(ble_gatts_count_cfg(gatt_svr_svcs));
-    ESP_ERROR_CHECK(ble_gatts_add_svcs(gatt_svr_svcs));
-
+    printf("BLE 7\n");
+    ble_gatts_count_cfg(gatt_svr_svcs);
+    printf("BLE 8\n");
+    ble_gatts_add_svcs(gatt_svr_svcs);
+    printf("BLE 9\n");
     nimble_port_freertos_init(ble_host_task);
+    printf("BLE 10\n");
 }
