@@ -1,8 +1,9 @@
 #include "i2c_ds1307.h"
 #include "system_lib.h"
+#include "i2c_lcd.h"
 
 // TAG para los logs
-static const char *TAG = "DS1307"; 
+//static const char *TAG = "DS1307"; 
 
 uint8_t decimal2bcd(uint8_t decimal){
     // (decimal / 10) nos da las decenas: van en los 4 bits altos 
@@ -17,7 +18,7 @@ uint8_t bcd2decimal(uint8_t bcd){
     return ((bcd >> 4) * 10) + (bcd & 0x0F);
 }
 
-void rtc_init(void){
+void ds1307_init(void){
     i2c_config_t config = { //El ESP32 va a ser el MAESTRO: genera SCL, START, STOP 
         .mode = I2C_MODE_MASTER,
         .sda_io_num = RTC_SDA,
@@ -26,10 +27,10 @@ void rtc_init(void){
         .scl_pullup_en = GPIO_PULLDOWN_DISABLE,
         .master.clk_speed = I2C_FREQ_HZ
     };
-    i2c_param_config(I2C_PORT, &config);
-    i2c_driver_install(I2C_PORT, config.mode, 0, 0, 0);
-    ESP_LOGI(TAG, "Bus I2C inicializado a 100kHz en SDA=%d SCL=%d", 
-             RTC_SDA, RTC_SCL); 
+    i2c_param_config(I2C_PORT_RTC, &config);
+    i2c_driver_install(I2C_PORT_RTC, config.mode, 0, 0, 0);
+    //ESP_LOGI(TAG, "Bus I2C inicializado a 100kHz en SDA=%d SCL=%d", 
+             //RTC_SDA, RTC_SCL); 
 }
 
 void ds1307_write_hours(uint8_t seconds, uint8_t minutes, uint8_t hour, 
@@ -51,18 +52,18 @@ void ds1307_write_hours(uint8_t seconds, uint8_t minutes, uint8_t hour,
     i2c_master_write_byte(cmd, decimal2bcd(year), true);
     i2c_master_stop(cmd);
     
-    esp_err_t resultado = i2c_master_cmd_begin(I2C_PORT, cmd, pdMS_TO_TICKS(1000));  //time-out, como un watchdog, si se pasa de ese tiempo, el master lo toma como error
+    esp_err_t resultado = i2c_master_cmd_begin(I2C_PORT_RTC, cmd, pdMS_TO_TICKS(1000));  //time-out, como un watchdog, si se pasa de ese tiempo, el master lo toma como error
     i2c_cmd_link_delete(cmd); //desconectar la comunicación con delete
     if (resultado == ESP_OK) { 
-        ESP_LOGI(TAG, "Hora escrita correctamente en el DS1307"); 
+        //ESP_LOGI(TAG, "Hora escrita correctamente en el DS1307"); 
     } 
     else { 
-        ESP_LOGE(TAG, "Error al escribir en el DS1307: %s", 
-                 esp_err_to_name(resultado)); 
+        //ESP_LOGE(TAG, "Error al escribir en el DS1307: %s", 
+                 //esp_err_to_name(resultado)); 
     } 
 }
 
-void ds1307_read_time(int i) {  //0: INFO, 1: WARN, 2:ERROR
+void ds1307_read_time(void) {
     uint8_t datos[7]; // Buffer con los 7 bytes leídos (un byte por registro)
     i2c_cmd_handle_t cmd = i2c_cmd_link_create(); 
     // Leer desde la dirección 0x00. Inicialización:
@@ -87,11 +88,11 @@ void ds1307_read_time(int i) {  //0: INFO, 1: WARN, 2:ERROR
     i2c_master_stop(cmd); //Terminar la transacción
  
     // Enviar el resultado:
-    esp_err_t resultado = i2c_master_cmd_begin(I2C_PORT, cmd, pdMS_TO_TICKS(1000)); 
+    esp_err_t resultado = i2c_master_cmd_begin(I2C_PORT_RTC, cmd, pdMS_TO_TICKS(1000)); 
     i2c_cmd_link_delete(cmd);
     if (resultado != ESP_OK) { 
-        ESP_LOGE(TAG, "Error al leer del DS1307: %s", 
-                 esp_err_to_name(resultado)); 
+        //ESP_LOGE(TAG, "Error al leer del DS1307: %s", 
+                 //esp_err_to_name(resultado)); 
         return; 
     } 
     // Cada byte viene en BCD, se convierte a decimal para mostrarlo:
@@ -103,5 +104,9 @@ void ds1307_read_time(int i) {  //0: INFO, 1: WARN, 2:ERROR
     uint8_t mes      = bcd2decimal(datos[5] & 0x1F); 
     uint8_t anio     = bcd2decimal(datos[6]); 
     
-    //Mostrar HH:MM:SS
+    //Mostrar en LCD:
+    char linea[17];
+    snprintf(linea, sizeof(linea), "%02u:%02u:%02u", horas, minutos, segundos);
+    lcd_set_cursor(1,0);
+    lcd_print(linea);
 }
