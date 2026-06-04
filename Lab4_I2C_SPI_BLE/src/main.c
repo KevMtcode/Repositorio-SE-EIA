@@ -17,11 +17,11 @@ typedef enum { //Estados
 volatile states_t current_state = STATE_INIT; //Variable de estado actual
 
 void app_main(void) {
+    indicators_init();
     BUZZER_OFF;
     RED_OFF;
     GREEN_OFF;
     BLUE_OFF;
-    indicators_init();
     printf("APP START\n");
     i2c_init();
     printf("I2C ready\n");
@@ -31,7 +31,7 @@ void app_main(void) {
     printf("Cleared\n");
     ds1307_init();
     printf("RTC\n");
-    ds1307_write_hours(0, 0, 15, 3, 3, 6, 26); // 15:00:00, día 3 de la semana, 03/06/26 
+    ds1307_write_hours(0, 0, 00, 4, 4, 6, 26); // 00:00:00, día 4 de la semana, 04/06/26 
     rfid_spi_init();
     mfrc522_init();
     ble_init();
@@ -46,6 +46,8 @@ void app_main(void) {
     int cont = 1;
     uint8_t uid[10];
     uint8_t atqa[2];
+    char last_message[17] = "Sinmensajes";
+    bool time = true;
 
     timer_set_counter_value(TIMER_GROUP_0, TIMER_0, 0); //Se pone en 0
     timer_start(TIMER_GROUP_0, TIMER_0); //Comienza a contar el timer 
@@ -91,6 +93,10 @@ void app_main(void) {
                     last_led = now;
                     break;
                 case STATE_ACTIVATED:
+                    lcd_message[17] = "Sin mensajes";
+                    last_msg = now;
+                    last_time = now;
+                    time = true;
                     lcd_clear();
                     BLUE_ON;
                     break;
@@ -158,19 +164,34 @@ void app_main(void) {
                 }
                 break;
             case STATE_ACTIVATED:
-                lcd_print(lcd_message); //Mensaje enviado por BLE
                 if((now - last_time) >= 1000000){ //1000ms = 1s
                     ds1307_read_time();
                     last_time = now;
                 }
                 if((now - last_msg) >= 10000000){ //10000ms = 10s
                     lcd_clear();
+                    lcd_set_cursor(0,0);
                     lcd_print("Sin mensajes");
+                    strcpy(last_message, "Sin mensajes"); //last_message = "Sin mensajes"
                     ds1307_read_time();
+                    lcd_message[0] = '\0';
                     last_msg = now;
                 }
-                if(uid_autorizado(uid)){ //access granted: true 
-                  current_state = STATE_LOGOUT;
+                if(strcmp(last_message, lcd_message) != 0 && lcd_message[0] != '\0'){
+                    lcd_set_cursor(0,0);
+                    for(int i=0; i < 16; i++){
+                        lcd_data(' ');
+                    }
+                    lcd_set_cursor(0,0);
+                    lcd_print(lcd_message); //Mensaje enviado por BLE
+                    strcpy(last_message, lcd_message); //last_message = lcd_message
+                }
+                if (mfrc522_request(atqa)) { // Hay tarjeta
+                    if (mfrc522_anticoll(uid)) { // UID leído correctamente
+                        if (uid_autorizado(uid)) {
+                            current_state = STATE_LOGOUT;
+                        }
+                    }
                 }
                 break;
             case STATE_LOGOUT:

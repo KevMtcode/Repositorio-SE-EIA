@@ -244,6 +244,7 @@ void ble_init(void){
     printf("BLE 3\n");
     esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
     printf("BLE 4\n");
+    esp_nimble_hci_and_controller_init();
     nimble_port_init();
     printf("BLE 5\n");
     ble_svc_gap_init();
